@@ -17,8 +17,9 @@
     > **NOTE**: Use your fork on the command below
 
     ~~~sh
-    argocd repo add https://github.com/mvazquezc/reverse-words-cicd.git --name reversewords-cicd
+    argocd repo add https://github.com/llegolas/reverse-words-cicd.git --name reversewords-cicd
     ~~~
+
 2. Edit the ingresses for our applications before creating them in Argo CD
 
     > **NOTE**: Update the ingresses on your fork to match your environment hostnames
@@ -41,30 +42,49 @@
     git commit -am "Added ingress hostname"
     git push origin prod
     ~~~
+
 3. Define Development application
 
     > **NOTE**: Use your fork on the command below
 
+    Give the ```default``` service account in the ```reverse-words-stage``` namespace rights to pull from ```reversewords-ci```
+
+    ~~~sh
+    oc adm policy add-role-to-user system:image-puller system:serviceaccount:reverse-words-stage:default -n reversewords-ci
+    ~~~
+
+    and define staging the application
+
     ~~~sh
     argocd app create --project default --name reverse-words-stage \
-    --repo https://github.com/mvazquezc/reverse-words-cicd.git \
+    --repo https://github.com/llegolas/reverse-words-cicd.git \
     --path . \
     --dest-server https://kubernetes.default.svc \
     --dest-namespace reverse-words-stage --revision stage \
     --self-heal --sync-policy automated
     ~~~
+
 4. Define Production application
 
     > **NOTE**: Use your fork on the command below
 
+    Give the ```default``` service account in the ```reverse-words-production``` namespace rights to pull from ```reversewords-ci```
+
+    ~~~sh
+    oc adm policy add-role-to-user system:image-puller system:serviceaccount:reverse-words-production:default -n reversewords-ci
+    ~~~
+
+    and define the production application
+
     ~~~sh
     argocd app create --project default --name reverse-words-production \
-    --repo https://github.com/mvazquezc/reverse-words-cicd.git \
+    --repo https://github.com/llegolas/reverse-words-cicd.git \
     --path . \
     --dest-server https://kubernetes.default.svc \
     --dest-namespace reverse-words-production --revision prod \
     --self-heal --sync-policy automated
     ~~~
+
 5. At this point the applications will be deployed automatically and Argo CD will poll the Git repository in order to detect configuration drifts every 3 minutes, when that happens, Argo CD will automatically apply the config stored in Git
 
 ## Triggering the Build Pipeline using the WebHook
@@ -78,45 +98,42 @@ We are going to use WebHooks in order to run Pipelines automatically when new co
 
     > **NOTE**: Every Git server has its own properties, but basically you want to provide the ingress url for our webhook and when the Git server should send the hook. E.g: push events, PR events, etc.
 
-    1. Go to your application repository on GitHub, eg: https://github.com/mvazquezc/reverse-words
+    1. Go to your application repository on GitHub, eg: <https://github.com/llegolas/reverse-words>
     2. Click on `Settings` -> `Webhooks`
     3. Create the following `Hook`
        1. `Payload URL`: Output of command `oc -n reversewords-ci get route reversewords-webhook -o jsonpath='https://{.spec.host}'`
        2. `Content type`: application/json
-       2. `Secret`: v3r1s3cur3
-       3. `Events`: Check **Push Events**, leave others blank
-       4. `Active`: Check it
-       5. `SSL verification`: Check  **Disable**
-       6. Click on `Add webhook`
+       3. `Secret`: v3r1s3cur3
+       4. `Events`: Check **Push Events**, leave others blank
+       5. `Active`: Check it
+       6. `SSL verification`: Check  **Disable**
+       7. Click on `Add webhook`
 2. Now, we will configure the second webhook to react to changes on the cicd repository
 
     > **NOTE**: Argo CD comes with Webhooks enabled by default, that means that we just need to use the following url as Webhook endpoint, `https://<argocd-ingress-url>/api/webhook`
 
-    1. Go to your cicd repository on GitHub, eg: https://github.com/mvazquezc/reverse-words-cicd
+    1. Go to your cicd repository on GitHub, eg: <https://github.com/llegolas/reverse-words-cicd>
     2. Click on `Settings` -> `Webhooks`
     3. Create the following `Hook`
-       1. `Payload URL`: Output of command `oc -n argocd get route argocd-server -o jsonpath='https://{.spec.host}'/api/webhook` 
+       1. `Payload URL`: Output of command `oc -n argocd get route argocd-server -o jsonpath='https://{.spec.host}'/api/webhook`
        2. `Content type`: application/json
-       2. `Secret`: v3r1s3cur3
-       3. `Events`: Check **Push Events**, leave others blank
-       4. `Active`: Check it
-       5. `SSL verification`: Check  **Disable**
-       6. Click on `Add webhook`
-    4. We need to configure our `Secret Token` on Argo CD
-        ~~~sh
-        WEBHOOK_SECRET="v3r1s3cur3"
-        oc -n argocd patch secret argocd-secret -p "{\"data\":{\"webhook.github.secret\":\"$(echo -n $WEBHOOK_SECRET | base64)\"}}" --type=merge
-        ~~~
+       3. `Secret`: v3r1s3cur3
+       4. `Events`: Check **Push Events**, leave others blank
+       5. `Active`: Check it
+       6. `SSL verification`: Check  **Disable**
+       7. Click on `Add webhook`
+
 3. Now we should have a working Webhook, let's test it
 
     1. Deploy tkn cli
-        
+
         ~~~sh
-        sudo curl -L https://github.com/tektoncd/cli/releases/download/v0.10.0/tkn_0.10.0_Linux_x86_64.tar.gz | tar xz tkn 
+        sudo curl -L https://github.com/tektoncd/cli/releases/download/v0.17.1/tkn_0.17.1_Linux_x86_64.tar.gz | tar xz tkn 
         chown root: tkn && mv tkn /usr/bin/
         ~~~
+
     2. We need to commit to the main branch, let's update the release number
-     
+
         ~~~sh
         cd /var/tmp/code-to-prod-demo/reverse-words/
         CURRENT_RELEASE=$(grep "var version" main.go  | awk -F '"' '{print $2}' | awk -F "." 'BEGIN{FS=OFS="."}{NF--; print}')
@@ -128,13 +145,28 @@ We are going to use WebHooks in order to run Pipelines automatically when new co
         git commit -m "Release updated to $NEW_RELEASE"
         git push origin main
         ~~~
+
     3. Connect to the OpenShift Developer Console and navigate to the `reversewords-ci` namespace
-       1. You can see the PipelineRun on the console and follow the log 
+       You can see the PipelineRun on the console and follow the log
     4. We can check the running images for our application pod and see that when the pipeline finishes a new deployment is triggered on ArgoCD
+       We can confirm the version running in our staging environment
+
+       ~~~sh
+       curl $(oc -n reverse-words-stage get route -l app=reversewords-stage -o jsonpath='{.items[*].spec.host}')
+       ~~~
+
     5. When the Build pipeline finishes we can promote the new build to production
 
         ~~~sh
         tkn -n reversewords-ci pipeline start reverse-words-promote-pipeline -r app-git=reverse-words-cicd-git -p pathToDeploymentFile=./deployment.yaml -p stageBranch=stage -p stageAppUrl=$(oc -n reverse-words-stage get route -l app=reversewords-stage -o jsonpath='{.items[*].spec.host}')
+        ~~~
+
+        Which will create a new branch with name simmilar to ```image-promotion-dyafX``` and a pull request from it to reverse-words-cicd prod branch.
+        If you approve and merge the PR ArgoCD will pick-up the changes and update the deployment in ```reverse-words-production``` namespace.
+        We can confirm that with the command
+
+        ~~~sh
+         curl $(oc -n reverse-words-production get route -l app=reversewords-prod -o jsonpath='{.items[*].spec.host}')
         ~~~
 
 ## Tekton Polling Operator
@@ -158,6 +190,7 @@ We are going to follow the second approach.
     oc create namespace tekton-polling-operator
     oc -n tekton-polling-operator apply -f https://github.com/bigkevmcd/tekton-polling-operator/releases/download/v0.2.0/release-v0.2.0.yaml
     ~~~
+
 2. Create the required ClusterRole and ClusterRoleBinding for the Operator to create PipelineRuns on the reversewords-ci namespace
 
     ~~~sh
@@ -189,12 +222,8 @@ We are going to follow the second approach.
       namespace: tekton-polling-operator
     EOF
     ~~~
-3. Patch the default ServiceAccount in the reversewords-ci namespace so it has access to the quay secret (this is required since polling operator still doesn't support defining ServiceAccounts for specific steps)
 
-    ~~~sh
-    oc -n reversewords-ci patch serviceaccount pipeline -p '{"secrets":[{"name":"quay-user-pass"}]}'
-    ~~~
-4. Create the repository object for polling
+3. Create the repository object for polling
 
     ~~~sh
     cat <<EOF | oc -n tekton-polling-operator create -f -
@@ -203,7 +232,7 @@ We are going to follow the second approach.
     metadata:
       name: reversewords-repository
     spec:
-      url: https://github.com/mvazquezc/reverse-words.git
+      url: https://github.com/llegolas/reverse-words.git
       ref: main
       frequency: 1m
       type: github
@@ -245,14 +274,16 @@ In order to solve this problem we are going to use Sealed Secrets, there are oth
 
     ~~~sh
     # Get the KubeSeal Cli and place it in /usr/bin/
-    sudo curl -L https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.12.4/kubeseal-linux-amd64 -o /usr/bin/kubeseal
+    sudo curl -L https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.15.0/kubeseal-linux-amd64 -o /usr/bin/kubeseal
     sudo chmod +x /usr/bin/kubeseal
     ~~~
+
 2. Deploy the KubeSeal Controller into the cluster
 
     ~~~sh
-    oc -n kube-system apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.12.4/controller.yaml
+    oc -n kube-system apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.15.0/controller.yaml
     ~~~
+
 3. Create a test secret
 
     ~~~sh
@@ -266,11 +297,13 @@ In order to solve this problem we are going to use Sealed Secrets, there are oth
     # Create the secret on a yaml file
     oc -n reverse-words-stage create secret generic my-test-secret --from-literal=username=admin --from-literal=password=v3r1s3cur3 --dry-run=client -o yaml > /tmp/test-secret.yaml
     ~~~
+
 4. Seal the test secret
 
     ~~~sh
     kubeseal -o yaml < /tmp/test-secret.yaml > test-secret-sealed.yaml
     ~~~
+
 5. Update the Kustomization and push the sealed secret to the git repository
 
     ~~~sh

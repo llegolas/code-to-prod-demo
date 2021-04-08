@@ -1,10 +1,15 @@
 # Deploy OpenShift and the required Operators
 
-1. Deploy an OpenShift or OKD Cluster. For this demo we used OpenShift Container Platform v4.6.6
+1. Deploy an OpenShift or OKD Cluster. For this demo we used OpenShift Container Platform v4.7 and enable additional operatorhub sources
+
+    ~~~sh
+    oc patch operatorhubs.config.openshift.io cluster --type=json -p='[{"op": "replace", "path": "/spec/disableAllDefaultSources", "value":false}]'
+    ~~~
+
 2. Deploy Argo CD using the OperatorG
 
     1. Deploy the Operator
-    
+
     ~~~sh
     oc create namespace argocd
     cat <<EOF | oc -n argocd create -f -
@@ -28,8 +33,9 @@
       sourceNamespace: openshift-marketplace
     EOF
     ~~~
+
     2. Once the operator is running, create the operand
- 
+
     ~~~sh
     cat <<EOF | oc -n argocd apply -f -
     apiVersion: argoproj.io/v1alpha1
@@ -65,7 +71,21 @@
         scopes: '[groups]'
     EOF
     ~~~
-3.  Deploy OpenShift Pipelines Operator
+
+    3. Give argocd service account permissions
+
+    ~~~sh
+    oc adm policy add-cluster-role-to-user cluster-admin -z argocd-application-controller -n argocd
+    ~~~
+
+    4. We need to configure our `Secret Token` on Argo CD
+
+    ~~~sh
+    WEBHOOK_SECRET="v3r1s3cur3"
+    oc -n argocd patch secret argocd-secret -p "{\"data\":{\"webhook.github.secret\":\"$(echo -n $WEBHOOK_SECRET | base64)\"}}" --type=merge
+    ~~~
+
+3. Deploy OpenShift Pipelines Operator
 
     ~~~sh
     cat <<EOF | oc -n openshift-operators create -f -
@@ -74,7 +94,7 @@
     metadata:
       name: openshift-pipelines-operator-rh
     spec:
-      channel: ocp-4.6
+      channel: stable
       installPlanApproval: Automatic
       name: openshift-pipelines-operator-rh
       source: redhat-operators
@@ -90,130 +110,86 @@
 
     ~~~sh
     mkdir -p /var/tmp/code-to-prod-demo/
-    git clone git@github.com:mvazquezc/reverse-words.git /var/tmp/code-to-prod-demo/reverse-words
-    git clone git@github.com:mvazquezc/reverse-words-cicd.git /var/tmp/code-to-prod-demo/reverse-words-cicd
+    git clone git@github.com:llegolas/reverse-words.git /var/tmp/code-to-prod-demo/reverse-words
+    git clone git@github.com:llegolas/reverse-words-cicd.git /var/tmp/code-to-prod-demo/reverse-words-cicd
     ~~~
+
 2. Go to the reverse-words-cicd repo and checkout the CI branch which contains our Tekton manifests
 
     ~~~sh
     cd /var/tmp/code-to-prod-demo/reverse-words-cicd
     git checkout ci
     ~~~
+
 3. Create a namespace for storing the configuration for our reversewords app pipeline
 
     ~~~sh
     oc create namespace reversewords-ci
     ~~~
-4. Add the quay credentials to the credentials file
 
-    ~~~sh
-    QUAY_USER=<your_user>
-    read -s QUAY_PASSWORD
-    sed -i "s/<username>/$QUAY_USER/" quay-credentials.yaml
-    sed -i "s/<password>/$QUAY_PASSWORD/" quay-credentials.yaml
-    ~~~
-5. Create a Secret containing the credentials to access our Git repository
+4. Create a Secret containing the credentials to access our Git repository
 
     > **NOTE**: You need to provide a token with push access to the cicd repository
-    
+
     ~~~sh
     read -s GIT_AUTH_TOKEN
     oc -n reversewords-ci create secret generic image-updater-secret --from-literal=token=${GIT_AUTH_TOKEN}
     ~~~
-6. Import credentials into the cluster
+
+5. Create the all the tasks needed down the road
 
     ~~~sh
-    oc -n reversewords-ci create -f quay-credentials.yaml
+    oc -n reversewords-ci create -f tasks/
     ~~~
-7. Create a ServiceAccount with access to the credentials created in the previous step
 
-    ~~~sh
-    oc -n reversewords-ci create -f pipeline-sa.yaml
-    ~~~
-8. Create the Linter Task which will lint our code
+6. Edit some parameters from our Build Pipeline definition
 
-    ~~~sh
-    oc -n reversewords-ci create -f lint-task.yaml
-    ~~~
-9. Create the Tester Task which will run the tests in our app
-
-    ~~~sh
-    oc -n reversewords-ci create -f test-task.yaml
-    ~~~
-10. Create the Builder Task which will build a container image for our app
-
-    ~~~sh
-    oc -n reversewords-ci create -f build-task.yaml
-    ~~~
-11. Create the Image Update Task which will update the Deployment on a given branch after a successful image build
-
-    ~~~sh
-    oc -n reversewords-ci create -f image-updater-task.yaml
-    ~~~
-12. Edit some parameters from our Build Pipeline definition
-    
     > **NOTE**: You need to use your forks address in the substitutions below
 
     ~~~sh
-    sed -i "s|<reversewords_git_repo>|https://github.com/mvazquezc/reverse-words|" build-pipeline.yaml
-    sed -i "s|<reversewords_quay_repo>|quay.io/mavazque/tekton-reversewords|" build-pipeline.yaml
-    sed -i "s|<golang_package>|github.com/mvazquezc/reverse-words|" build-pipeline.yaml
-    sed -i "s|<imageBuilder_sourcerepo>|mvazquezc/reverse-words-cicd|" build-pipeline.yaml
+    sed -i "s|<reversewords_git_repo>|https://github.com/llegolas/reverse-words|" pipelines/build-pipeline/build-pipeline.yaml
+    sed -i "s|<reversewords_quay_repo>|quay.io/mavazque/tekton-reversewords|" pipelines/build-pipeline/build-pipeline.yaml
+    sed -i "s|<golang_package>|github.com/llegolas/reverse-words|" pipelines/build-pipeline/build-pipeline.yaml
+    sed -i "s|<imageBuilder_sourcerepo>|llegolas/reverse-words-cicd|" pipelines/build-pipeline/build-pipeline.yaml
+    sed -i "s|<stageAppUrl>|reversewords-dev.apps.am-week-test.okd.endava-test-domain.be|" pipelines/build-pipeline/build-pipeline.yaml
     ~~~
-13. Create the Build Pipeline definition which will be used to execute the previous tasks in an specific order with specific parameters
 
-    ~~~sh
-    oc -n reversewords-ci create -f build-pipeline.yaml
-    ~~~
-14. Create the curl task which will be used to query our apps on the promoter pipeline
-
-    ~~~sh
-    oc -n reversewords-ci create -f curl-task.yaml
-    ~~~
-15. Create the task that gets the stage release from the git cicd repository
-
-    ~~~sh
-    oc -n reversewords-ci create -f get-stage-release-task.yaml
-    ~~~
-16. Edit some parameters from our Promoter Pipeline definition
+7. Edit some parameters from our Promoter Pipeline definition
 
     > **NOTE**: You need to use your forks address/quay account in the substitutions below
 
     ~~~sh
-    sed -i "s|<reversewords_cicd_git_repo>|https://github.com/mvazquezc/reverse-words-cicd|" promote-to-prod-pipeline.yaml
-    sed -i "s|<reversewords_quay_repo>|quay.io/mavazque/tekton-reversewords|" promote-to-prod-pipeline.yaml
-    sed -i "s|<imageBuilder_sourcerepo>|mvazquezc/reverse-words-cicd|" promote-to-prod-pipeline.yaml
-    sed -i "s|<stage_deployment_file_path>|./deployment.yaml|" promote-to-prod-pipeline.yaml
+    sed -i "s|<reversewords_cicd_git_repo>|https://github.com/llegolas/reverse-words-cicd|" pipelines/promote-to-prod-pipeline.yaml
+    sed -i "s|<reversewords_quay_repo>|quay.io/mavazque/tekton-reversewords|" pipelines/promote-to-prod-pipeline.yaml
+    sed -i "s|<imageBuilder_sourcerepo>|llegolas/reverse-words-cicd|" pipelines/promote-to-prod-pipeline.yaml
+    sed -i "s|<stage_deployment_file_path>|./deployment.yaml|" pipelines/promote-to-prod-pipeline.yaml
     ~~~
-17. Create the Promoter Pipeline definition which will be used to execute the previous tasks in an specific order with specific parameters
+
+8. Create the Build and Promoter pipelines' definitions and resources which will be used to execute the previous tasks in an specific order with specific parameters
 
     ~~~sh
-    oc -n reversewords-ci create -f promote-to-prod-pipeline.yaml
+    oc -n reversewords-ci create -f pipelines/
     ~~~
-18. Create the required Roles and RoleBindings for working with Webhooks
 
-    ~~~sh
-    oc -n reversewords-ci create -f webhook-roles.yaml
-    ~~~
-19. Create the TriggerBinding for reading data received by a webhook and pass it to the Pipeline
+9. Create the TriggerBinding for reading data received by a webhook and pass it to the Pipeline
 
     ~~~sh
     oc -n reversewords-ci create -f github-triggerbinding.yaml
     ~~~
-20. Create the TriggerTemplate and Event Listener to run the Pipeline when new commits hit the main branch of our app repository
+
+10. Edit the route definition in ```webhook.yaml``` to reflect your clusters wildcard name
+
+    ~~~sh
+    CLUSTER_WILDCARD=$(oc -n openshift-console get route console -o jsonpath='{.spec.host}' | cut -d. -f 2-)
+    sed -i "s/host: .*/reversewords-webhook-reversewords-ci\.${CLUSTER_WILDCARD}/"
+    ~~~
+
+11. Create the TriggerTemplate, Event Listener and Route to run the Pipeline when new commits hit the main branch of our app repository
 
     ~~~sh
     WEBHOOK_SECRET="v3r1s3cur3"
     oc -n reversewords-ci create secret generic webhook-secret --from-literal=secret=${WEBHOOK_SECRET}
-    sed -i "s/<git-triggerbinding>/github-triggerbinding/" webhook.yaml
-    sed -i "/ref: github-triggerbinding/d" webhook.yaml
-    sed -i "s/- name: pipeline-binding/- name: github-triggerbinding/" webhook.yaml
     oc -n reversewords-ci create -f webhook.yaml
-    ~~~
-21. We need to provide an ingress point for our EventListener, we want it to be TLS, we will create a edge route
-
-    ~~~sh
-    oc -n reversewords-ci create route edge reversewords-webhook --service=el-reversewords-webhook --port=8080 --insecure-policy=Redirect
     ~~~
 
 # Configure Argo CD
@@ -222,13 +198,14 @@
 
     ~~~sh
     # Get the Argo CD Cli and place it in /usr/bin/
-    sudo curl -L https://github.com/argoproj/argo-cd/releases/download/v1.6.1/argocd-linux-amd64 -o /usr/bin/argocd
-    sudo chmod +x /usr/bin/argocd
+    sudo curl -L https://github.com/argoproj/argo-cd/releases/download/v1.7.7/argocd-linux-amd64 -o /usr/local/bin/argocd
+    sudo chmod +x /usr/local/bin/argocd
     ~~~
+
 2. Login into Argo CD from the Cli
   
     ~~~sh  
     ARGOCD_PASSWORD=$(oc -n argocd get secret argocd-cluster -o jsonpath='{.data.admin\.password}' | base64 -d)
-    ARGOCD_ROUTE=$(oc -n argocd get route argocd -o jsonpath='{.spec.host}')
+    ARGOCD_ROUTE=$(oc -n argocd get route argocd-server -o jsonpath='{.spec.host}')
     argocd login $ARGOCD_ROUTE --insecure --username admin --password $ARGOCD_PASSWORD
     ~~~

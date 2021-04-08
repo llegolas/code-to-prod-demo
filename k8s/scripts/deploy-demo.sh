@@ -58,8 +58,8 @@ echo -ne "Waiting for Tekton Webhook to be ready"
 until [[ $(kubectl -n tekton-pipelines get pods -l app.kubernetes.io/component=webhook -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null) == "true" ]]; do echo -ne "."; sleep 5;done
 echo "done"
 mkdir -p /var/tmp/code-to-prod-demo/
-git clone git@github.com:mvazquezc/reverse-words.git /var/tmp/code-to-prod-demo/reverse-words
-git clone git@github.com:mvazquezc/reverse-words-cicd.git /var/tmp/code-to-prod-demo/reverse-words-cicd
+git clone git@github.com:llegolas/reverse-words.git /var/tmp/code-to-prod-demo/reverse-words
+git clone git@github.com:llegolas/reverse-words-cicd.git /var/tmp/code-to-prod-demo/reverse-words-cicd
 cd ~/reverse-words-cicd
 git checkout ci
 echo "Create Tekton resources for the demo"
@@ -73,10 +73,10 @@ kubectl -n tekton-reversewords create -f lint-task.yaml
 kubectl -n tekton-reversewords create -f test-task.yaml
 kubectl -n tekton-reversewords create -f build-task.yaml
 kubectl -n tekton-reversewords create -f image-updater-task.yaml
-sed -i "s|<reversewords_git_repo>|https://github.com/mvazquezc/reverse-words|" build-pipeline.yaml
+sed -i "s|<reversewords_git_repo>|https://github.com/llegolas/reverse-words|" build-pipeline.yaml
 sed -i "s|<reversewords_quay_repo>|quay.io/mavazque/tekton-reversewords|" build-pipeline.yaml
-sed -i "s|<golang_package>|github.com/mvazquezc/reverse-words|" build-pipeline.yaml
-sed -i "s|<imageBuilder_sourcerepo>|mvazquezc/reverse-words-cicd|" build-pipeline.yaml
+sed -i "s|<golang_package>|github.com/llegolas/reverse-words|" build-pipeline.yaml
+sed -i "s|<imageBuilder_sourcerepo>|llegolas/reverse-words-cicd|" build-pipeline.yaml
 kubectl -n tekton-reversewords create -f build-pipeline.yaml
 kubectl -n tekton-reversewords create -f webhook-roles.yaml
 kubectl -n tekton-reversewords create -f github-triggerbinding.yaml
@@ -86,9 +86,9 @@ sed -i "s/<git-triggerbinding>/github-triggerbinding/" webhook.yaml
 kubectl -n tekton-reversewords create -f webhook.yaml
 kubectl -n tekton-reversewords create -f curl-task.yaml
 kubectl -n tekton-reversewords create -f get-stage-release-task.yaml
-sed -i "s|<reversewords_cicd_git_repo>|https://github.com/mvazquezc/reverse-words-cicd|" promote-to-prod-pipeline.yaml
+sed -i "s|<reversewords_cicd_git_repo>|https://github.com/llegolas/reverse-words-cicd|" promote-to-prod-pipeline.yaml
 sed -i "s|<reversewords_quay_repo>|quay.io/mavazque/tekton-reversewords|" promote-to-prod-pipeline.yaml
-sed -i "s|<imageBuilder_sourcerepo>|mvazquezc/reverse-words-cicd|" promote-to-prod-pipeline.yaml
+sed -i "s|<imageBuilder_sourcerepo>|llegolas/reverse-words-cicd|" promote-to-prod-pipeline.yaml
 sed -i "s|<stage_deployment_file_path>|./deployment.yaml|" promote-to-prod-pipeline.yaml
 kubectl -n tekton-reversewords create -f promote-to-prod-pipeline.yaml
 mkdir -p /var/tmp/code-to-prod-demo/tls-certs/

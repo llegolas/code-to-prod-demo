@@ -17,7 +17,7 @@
     > **NOTE**: Use your fork on the command below
 
     ~~~sh
-    argocd repo add https://github.com/mvazquezc/reverse-words-cicd.git --name reversewords-cicd
+    argocd repo add https://github.com/llegolas/reverse-words-cicd.git --name reversewords-cicd
     ~~~
 2. Edit the ingresses for our applications before creating them in Argo CD
 
@@ -46,7 +46,7 @@
 
     ~~~sh
     argocd app create --project default --name reverse-words-stage \
-    --repo https://github.com/mvazquezc/reverse-words-cicd.git \
+    --repo https://github.com/llegolas/reverse-words-cicd.git \
     --path . \
     --dest-server https://kubernetes.default.svc \
     --dest-namespace reverse-words-stage --revision stage \
@@ -58,7 +58,7 @@
 
     ~~~sh
     argocd app create --project default --name reverse-words-production \
-    --repo https://github.com/mvazquezc/reverse-words-cicd.git \
+    --repo https://github.com/llegolas/reverse-words-cicd.git \
     --path . \
     --dest-server https://kubernetes.default.svc \
     --dest-namespace reverse-words-production --revision prod \
@@ -77,7 +77,7 @@ We are going to use WebHooks in order to run Pipelines automatically when new co
 
     > **NOTE**: Every Git server has its own properties, but basically you want to provide the ingress url for our webhook and when the Git server should send the hook. E.g: push events, PR events, etc.
 
-    1. Go to your application repository on GitHub, eg: https://github.com/mvazquezc/reverse-words
+    1. Go to your application repository on GitHub, eg: https://github.com/llegolas/reverse-words
     2. Click on `Settings` -> `Webhooks`
     3. Create the following `Hook`
        1. `Payload URL`: https://tekton-events.mario.lab
@@ -91,7 +91,7 @@ We are going to use WebHooks in order to run Pipelines automatically when new co
 
     > **NOTE**: Argo CD comes with Webhooks enabled by default, that means that we just need to use the following url as Webhook endpoint, `https://<argocd-ingress-url>/api/webhook`
 
-    1. Go to your cicd repository on GitHub, eg: https://github.com/mvazquezc/reverse-words-cicd
+    1. Go to your cicd repository on GitHub, eg: https://github.com/llegolas/reverse-words-cicd
     2. Click on `Settings` -> `Webhooks`
     3. Create the following `Hook`
        1. `Payload URL`: https://argocd.oss20.mario.lab/api/webhook
@@ -204,7 +204,7 @@ We are going to follow the second approach.
     metadata:
       name: reversewords-repository
     spec:
-      url: https://github.com/mvazquezc/reverse-words.git
+      url: https://github.com/llegolas/reverse-words.git
       ref: main
       frequency: 1m
       type: github
